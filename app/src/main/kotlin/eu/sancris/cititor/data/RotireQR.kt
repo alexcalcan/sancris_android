@@ -46,9 +46,9 @@ object RotireQR {
 
         val rotatieCw = when {
             abs(dx) > abs(dy) && dx > 0 -> 0      // upright
-            abs(dy) > abs(dx) && dy > 0 -> 270    // QR right -> down → rotate 90° CCW = 270° CW
+            abs(dy) > abs(dx) && dy > 0 -> 90     // QR right -> down → rotate 90° CW
             abs(dx) > abs(dy) && dx < 0 -> 180    // upside down
-            abs(dy) > abs(dx) && dy < 0 -> 90     // QR right -> up → rotate 90° CW
+            abs(dy) > abs(dx) && dy < 0 -> 270    // QR right -> up → rotate 90° CCW = 270° CW
             else -> 0
         }
 
