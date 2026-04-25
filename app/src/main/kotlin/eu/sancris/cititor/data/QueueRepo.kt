@@ -63,6 +63,24 @@ class QueueRepo(private val context: Context) {
         programeazaUpload()
     }
 
+    /**
+     * Roteste fisierul foto pe disc cu [gradeCw] grade clockwise. Valoare
+     * tipica: 90, 180, 270 (ori multiplii).
+     */
+    suspend fun rotesteFisier(id: Long, gradeCw: Int) = withContext(Dispatchers.IO) {
+        if (gradeCw % 360 == 0) return@withContext
+        val citire = dao.gasesteId(id) ?: return@withContext
+        val fisier = File(citire.photoPath)
+        val original = android.graphics.BitmapFactory.decodeFile(fisier.absolutePath) ?: return@withContext
+        val matrix = android.graphics.Matrix().apply { postRotate(gradeCw.toFloat()) }
+        val rotated = android.graphics.Bitmap.createBitmap(
+            original, 0, 0, original.width, original.height, matrix, true,
+        )
+        fisier.outputStream().use { rotated.compress(android.graphics.Bitmap.CompressFormat.JPEG, 92, it) }
+        rotated.recycle()
+        if (!original.isRecycled) original.recycle()
+    }
+
     /** Programeaza upload-ul automat (constraint UNMETERED). */
     private fun programeazaUpload() {
         val constraints = Constraints.Builder()

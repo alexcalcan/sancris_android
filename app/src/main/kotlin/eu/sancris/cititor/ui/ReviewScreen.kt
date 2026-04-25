@@ -9,6 +9,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Rotate90DegreesCw
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -31,12 +32,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import eu.sancris.cititor.data.QueueRepo
@@ -83,22 +85,22 @@ fun ReviewScreen(
                 }
             }
         } else {
+            val curent = deRevizuit.first()
             CardCitireRevizuire(
-                citire = deRevizuit.first(),
+                citire = curent,
                 ramase = deRevizuit.size,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
                     .padding(16.dp),
-                onConfirma = { valoare ->
+                onConfirma = { valoare, rotatieCw ->
                     scope.launch {
-                        queueRepo.confirmaCitire(deRevizuit.first().id, valoare)
+                        if (rotatieCw != 0) queueRepo.rotesteFisier(curent.id, rotatieCw)
+                        queueRepo.confirmaCitire(curent.id, valoare)
                     }
                 },
                 onSterge = {
-                    scope.launch {
-                        queueRepo.stergeCitire(deRevizuit.first().id)
-                    }
+                    scope.launch { queueRepo.stergeCitire(curent.id) }
                 },
             )
         }
@@ -110,20 +112,33 @@ private fun CardCitireRevizuire(
     citire: CitireQueue,
     ramase: Int,
     modifier: Modifier = Modifier,
-    onConfirma: (String) -> Unit,
+    onConfirma: (valoare: String, rotatieCw: Int) -> Unit,
     onSterge: () -> Unit,
 ) {
     var valoare by remember(citire.id) { mutableStateOf("") }
+    var rotatie by remember(citire.id) { mutableStateOf(0) }
 
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text(
-            text = citire.serial,
-            fontWeight = FontWeight.Bold,
-            fontSize = 18.sp,
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = citire.serial,
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(
+                onClick = { rotatie = (rotatie + 90) % 360 },
+            ) {
+                Icon(
+                    Icons.Default.Rotate90DegreesCw,
+                    contentDescription = "Rotește 90°",
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
 
         val bitmap by produceState<ImageBitmap?>(initialValue = null, citire.photoPath) {
             value = withContext(Dispatchers.IO) {
@@ -133,7 +148,7 @@ private fun CardCitireRevizuire(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 200.dp, max = 320.dp)
+                .heightIn(min = 240.dp, max = 360.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .background(Color.Black),
             contentAlignment = Alignment.Center,
@@ -143,7 +158,9 @@ private fun CardCitireRevizuire(
                     bitmap = it,
                     contentDescription = "Poză contor",
                     contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .rotate(rotatie.toFloat()),
                 )
             } ?: Text("Se încarcă...", color = Color.White)
         }
@@ -160,7 +177,7 @@ private fun CardCitireRevizuire(
         Spacer(Modifier.weight(1f))
 
         Button(
-            onClick = { onConfirma(valoare) },
+            onClick = { onConfirma(valoare, rotatie) },
             enabled = valoare.isNotBlank() && valoare.toDoubleOrNull() != null,
             modifier = Modifier.fillMaxWidth().height(56.dp),
         ) {
