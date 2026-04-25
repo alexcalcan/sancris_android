@@ -1,3 +1,5 @@
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Properties
 
 plugins {
@@ -28,7 +30,7 @@ android {
         buildConfigField(
             "String",
             "BUILD_DATE",
-            "\"" + java.text.SimpleDateFormat("dd-MM-yyyy").format(java.util.Date()) + "\"",
+            "\"" + SimpleDateFormat("dd-MM-yyyy").format(Date()) + "\"",
         )
     }
 
