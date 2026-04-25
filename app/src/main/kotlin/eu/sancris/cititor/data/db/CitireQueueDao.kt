@@ -14,8 +14,17 @@ interface CitireQueueDao {
     @Query("SELECT COUNT(*) FROM citire_queue")
     fun observaCount(): Flow<Int>
 
+    @Query("SELECT COUNT(*) FROM citire_queue WHERE status = '${StatusCitire.NEEDS_REVIEW}'")
+    fun observaCountDeRevizuit(): Flow<Int>
+
+    @Query("SELECT * FROM citire_queue WHERE status = '${StatusCitire.NEEDS_REVIEW}' ORDER BY createdAt ASC")
+    fun observaDeRevizuit(): Flow<List<CitireQueue>>
+
     @Query("SELECT * FROM citire_queue WHERE status IN ('${StatusCitire.PENDING}', '${StatusCitire.FAILED}') ORDER BY createdAt ASC")
     suspend fun listaDeTrimis(): List<CitireQueue>
+
+    @Query("UPDATE citire_queue SET status = '${StatusCitire.PENDING}', valoareConfirmata = :valoare, lastError = NULL WHERE id = :id")
+    suspend fun confirma(id: Long, valoare: String)
 
     @Query("SELECT * FROM citire_queue WHERE id = :id")
     suspend fun gasesteId(id: Long): CitireQueue?

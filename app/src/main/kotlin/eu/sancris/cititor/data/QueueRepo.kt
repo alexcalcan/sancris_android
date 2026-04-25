@@ -22,32 +22,45 @@ class QueueRepo(private val context: Context) {
     private val dao: CitireQueueDao = AppDatabase.get(context).citireQueueDao()
 
     val countFlow: Flow<Int> = dao.observaCount()
+    val countDeRevizuitFlow: Flow<Int> = dao.observaCountDeRevizuit()
     val toateFlow: Flow<List<CitireQueue>> = dao.observaToate()
+    val deRevizuitFlow: Flow<List<CitireQueue>> = dao.observaDeRevizuit()
 
     /**
      * Salveaza poza in storage privat al app-ului si o pune in coada.
      * Programeaza worker-ul de upload (nu e blocant).
      */
-    suspend fun adaugaCitire(
+    suspend fun adaugaPentruRevizuit(
         fotografieTemp: File,
         serial: String,
         sesiuneId: Long,
+        valoareDetectata: String?,
     ): Long = withContext(Dispatchers.IO) {
         val queueDir = File(context.filesDir, "queue").apply { mkdirs() }
         val destinatie = File(queueDir, "${System.currentTimeMillis()}_${serial}.jpg")
         fotografieTemp.copyTo(destinatie, overwrite = true)
         fotografieTemp.delete()
 
-        val id = dao.insereaza(
+        // NU programam worker-ul aici — asteptam ca user-ul sa confirme valoarea.
+        dao.insereaza(
             CitireQueue(
                 serial = serial,
                 photoPath = destinatie.absolutePath,
                 createdAt = System.currentTimeMillis(),
                 sesiuneId = sesiuneId,
+                status = eu.sancris.cititor.data.db.StatusCitire.NEEDS_REVIEW,
+                valoareDetectata = valoareDetectata,
             ),
         )
+    }
+
+    /**
+     * Marcheaza o citire ca revizuita: salveaza valoarea confirmata si o trimite
+     * pe pipeline-ul de upload.
+     */
+    suspend fun confirmaCitire(id: Long, valoareConfirmata: String) {
+        dao.confirma(id, valoareConfirmata)
         programeazaUpload()
-        id
     }
 
     /** Programeaza upload-ul automat (constraint UNMETERED). */

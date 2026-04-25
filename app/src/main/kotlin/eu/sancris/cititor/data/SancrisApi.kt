@@ -32,6 +32,7 @@ interface SancrisApi {
         @Header("X-Cititor-Token") token: String,
         @Part poza: MultipartBody.Part,
         @Part("serial") serial: RequestBody,
+        @Part("valoare") valoare: RequestBody? = null,
     ): Response<CitireResponse>
 
     @GET("api/cititori/contoare-de-citit")

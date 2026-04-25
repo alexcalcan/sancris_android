@@ -35,7 +35,7 @@ class UploadWorker(
                 continue
             }
 
-            val rezultat = repo.trimitePoza(fisier, citire.serial)
+            val rezultat = repo.trimitePoza(fisier, citire.serial, citire.valoareConfirmata)
             rezultat
                 .onSuccess {
                     fisier.delete()

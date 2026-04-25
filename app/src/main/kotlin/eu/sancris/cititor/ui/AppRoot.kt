@@ -19,7 +19,7 @@ import eu.sancris.cititor.data.UpdateInstaller
 import kotlinx.coroutines.launch
 import java.io.File
 
-private enum class Ecran { Camera, Queue, ContoareRamase }
+private enum class Ecran { Camera, Queue, ContoareRamase, Review }
 
 @Composable
 fun AppRoot() {
@@ -80,6 +80,7 @@ fun AppRoot() {
             onLogout = { scope.launch { configRepo.sterge() } },
             onSesiuneNoua = { sesiuneStare = StareSesiuneStart.Decizie(areActiva = false, scanate = 0, total = 0) },
             onOpenQueue = { ecran = Ecran.Queue },
+            onOpenReview = { ecran = Ecran.Review },
             onOpenContoareSesiune = { ecran = Ecran.ContoareRamase },
         )
         Ecran.Queue -> QueueScreen(
@@ -88,6 +89,10 @@ fun AppRoot() {
         )
         Ecran.ContoareRamase -> ContoareRamaseScreen(
             sesiuneRepo = sesiuneRepo,
+            onBack = { ecran = Ecran.Camera },
+        )
+        Ecran.Review -> ReviewScreen(
+            queueRepo = queueRepo,
             onBack = { ecran = Ecran.Camera },
         )
     }

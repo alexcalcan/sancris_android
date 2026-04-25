@@ -10,14 +10,19 @@ import java.io.File
 class UploadRepo(private val configurare: Configurare) {
     private val api = ApiBuilder.build(configurare.urlBaza)
 
-    suspend fun trimitePoza(fotografie: File, serial: String): Result<Long> {
+    suspend fun trimitePoza(
+        fotografie: File,
+        serial: String,
+        valoare: String? = null,
+    ): Result<Long> {
         return try {
             val mediaType = "image/jpeg".toMediaTypeOrNull()
             val pozaBody = fotografie.asRequestBody(mediaType)
             val pozaPart = MultipartBody.Part.createFormData("poza", fotografie.name, pozaBody)
             val serialBody: RequestBody = serial.toRequestBody("text/plain".toMediaTypeOrNull())
+            val valoareBody: RequestBody? = valoare?.toRequestBody("text/plain".toMediaTypeOrNull())
 
-            val raspuns = api.trimiteCitire(configurare.token, pozaPart, serialBody)
+            val raspuns = api.trimiteCitire(configurare.token, pozaPart, serialBody, valoareBody)
             if (raspuns.isSuccessful) {
                 Result.success(raspuns.body()?.id ?: 0L)
             } else {

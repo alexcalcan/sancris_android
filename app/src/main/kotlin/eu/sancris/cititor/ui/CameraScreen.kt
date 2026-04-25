@@ -61,6 +61,7 @@ fun CameraScreen(
     onLogout: () -> Unit,
     onSesiuneNoua: () -> Unit,
     onOpenQueue: () -> Unit,
+    onOpenReview: () -> Unit,
     onOpenContoareSesiune: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -68,6 +69,7 @@ fun CameraScreen(
     val scope = rememberCoroutineScope()
 
     val countInQueue by queueRepo.countFlow.collectAsState(initial = 0)
+    val countDeRevizuit by queueRepo.countDeRevizuitFlow.collectAsState(initial = 0)
     val sesiune by sesiuneRepo.activaFlow.collectAsState(initial = null)
     val scanate by sesiuneRepo.observaScanate().collectAsState(initial = 0)
     val total by sesiuneRepo.observaTotal().collectAsState(initial = 0)
@@ -227,6 +229,17 @@ fun CameraScreen(
 
         FeedbackOverlay(stareUpload)
 
+        if (countDeRevizuit > 0) {
+            BannerMergiMaiDeparte(
+                count = countDeRevizuit,
+                onClick = onOpenReview,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 140.dp, start = 24.dp, end = 24.dp)
+                    .align(Alignment.BottomCenter),
+            )
+        }
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -267,6 +280,29 @@ fun CameraScreen(
                 onClick = onOpenContoareSesiune,
             )
         }
+    }
+}
+
+@Composable
+private fun BannerMergiMaiDeparte(
+    count: Int,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0xFF2563EB))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+    ) {
+        Text(
+            text = "Mergi mai departe ($count poză(e) de revizuit) →",
+            modifier = Modifier.align(Alignment.Center),
+            color = Color.White,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 15.sp,
+        )
     }
 }
 
@@ -317,7 +353,7 @@ private fun BoxScope.FeedbackOverlay(stare: StareUpload) {
     when (stare) {
         StareUpload.Inactiv -> { mesaj = null; culoare = Color.Transparent }
         StareUpload.Capturare -> { mesaj = "Capturare..."; culoare = Color.Black.copy(alpha = 0.7f) }
-        is StareUpload.Salvat -> { mesaj = "Salvată local — se trimite când e WiFi"; culoare = Color(0xFF166534).copy(alpha = 0.92f) }
+        is StareUpload.Salvat -> { mesaj = "Salvată — revizuiește la final"; culoare = Color(0xFF166534).copy(alpha = 0.92f) }
         is StareUpload.Invalid -> { mesaj = "Contor invalid: ${stare.serial}\nNu e în lista sesiunii curente."; culoare = Color(0xFFB45309).copy(alpha = 0.92f) }
         is StareUpload.Eroare -> { mesaj = stare.mesaj; culoare = Color(0xFF991B1B).copy(alpha = 0.92f) }
     }
@@ -397,7 +433,12 @@ private fun capturareasiSalvare(
 
             override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                 scope.launch {
-                    runCatching { queueRepo.adaugaCitire(fisier, serial, sesiuneId) }
+                    val valoareDetectata = runCatching {
+                        eu.sancris.cititor.data.OcrService.extrageValoare(fisier)
+                    }.getOrNull()
+                    runCatching {
+                        queueRepo.adaugaPentruRevizuit(fisier, serial, sesiuneId, valoareDetectata)
+                    }
                         .onSuccess { id -> onStare(StareUpload.Salvat(id)) }
                         .onFailure { e -> onStare(StareUpload.Eroare(e.message ?: "Salvare eșuată")) }
                 }
