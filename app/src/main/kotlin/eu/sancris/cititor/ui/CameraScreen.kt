@@ -6,12 +6,14 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Camera
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Settings
@@ -36,33 +38,30 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import eu.sancris.cititor.BuildConfig
 import eu.sancris.cititor.camera.AnalizatorQR
-import eu.sancris.cititor.data.Configurare
-import eu.sancris.cititor.data.UploadRepo
-import kotlinx.coroutines.Dispatchers
+import eu.sancris.cititor.data.QueueRepo
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.Executors
 
 private sealed interface StareUpload {
     data object Inactiv : StareUpload
     data object Capturare : StareUpload
-    data object Trimitere : StareUpload
-    data class Succes(val id: Long) : StareUpload
+    data class Salvat(val id: Long) : StareUpload
     data class Eroare(val mesaj: String) : StareUpload
 }
 
 @Composable
 fun CameraScreen(
-    configurare: Configurare,
+    queueRepo: QueueRepo,
     onLogout: () -> Unit,
+    onOpenQueue: () -> Unit,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
 
-    val repo = remember(configurare) { UploadRepo(configurare) }
+    val countInQueue by queueRepo.countFlow.collectAsState(initial = 0)
 
     var serialDetectat by remember { mutableStateOf<String?>(null) }
     var flashAprins by remember { mutableStateOf(false) }
@@ -75,9 +74,8 @@ fun CameraScreen(
         camera?.cameraControl?.enableTorch(flashAprins)
     }
 
-    // Reset feedback de succes/eroare dupa 2.5s.
     LaunchedEffect(stareUpload) {
-        if (stareUpload is StareUpload.Succes || stareUpload is StareUpload.Eroare) {
+        if (stareUpload is StareUpload.Salvat || stareUpload is StareUpload.Eroare) {
             delay(2500)
             stareUpload = StareUpload.Inactiv
         }
@@ -120,7 +118,6 @@ fun CameraScreen(
             },
         )
 
-        // Border verde cand serialul e detectat.
         if (serialDetectat != null) {
             Box(
                 modifier = Modifier
@@ -130,7 +127,6 @@ fun CameraScreen(
             )
         }
 
-        // Etichetă sus cu starea detecției.
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -155,42 +151,60 @@ fun CameraScreen(
                 )
             }
 
-            Box(modifier = Modifier.align(Alignment.CenterEnd)) {
-                IconButton(onClick = { meniuDeschis = true }) {
-                    Icon(Icons.Default.Settings, contentDescription = "Setări", tint = Color.White)
+            Row(
+                modifier = Modifier.align(Alignment.CenterEnd),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (countInQueue > 0) {
+                    QueueBadge(count = countInQueue, onClick = onOpenQueue)
+                    Spacer(modifier = Modifier.size(8.dp))
                 }
-                DropdownMenu(
-                    expanded = meniuDeschis,
-                    onDismissRequest = { meniuDeschis = false },
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Logout") },
-                        leadingIcon = {
-                            Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null)
-                        },
-                        onClick = {
-                            meniuDeschis = false
-                            onLogout()
-                        },
-                    )
-                    HorizontalDivider()
-                    Text(
-                        text = "V${BuildConfig.VERSION_NAME} ${BuildConfig.BUILD_DATE}",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        textAlign = TextAlign.Center,
-                        fontSize = 12.sp,
-                        color = Color.Gray,
-                    )
+
+                Box {
+                    IconButton(onClick = { meniuDeschis = true }) {
+                        Icon(Icons.Default.Settings, contentDescription = "Setări", tint = Color.White)
+                    }
+                    DropdownMenu(
+                        expanded = meniuDeschis,
+                        onDismissRequest = { meniuDeschis = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Sincronizează acum") },
+                            leadingIcon = {
+                                Icon(Icons.Default.CloudUpload, contentDescription = null)
+                            },
+                            onClick = {
+                                meniuDeschis = false
+                                queueRepo.sincronizeazaAcum()
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Logout") },
+                            leadingIcon = {
+                                Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null)
+                            },
+                            onClick = {
+                                meniuDeschis = false
+                                onLogout()
+                            },
+                        )
+                        HorizontalDivider()
+                        Text(
+                            text = "V${BuildConfig.VERSION_NAME} ${BuildConfig.BUILD_DATE}",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            textAlign = TextAlign.Center,
+                            fontSize = 12.sp,
+                            color = Color.Gray,
+                        )
+                    }
                 }
             }
         }
 
-        // Feedback upload (toast-like).
         FeedbackOverlay(stareUpload)
 
-        // Bottom bar: flash + shutter + spacer.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -206,11 +220,11 @@ fun CameraScreen(
                 onClick = {
                     val serial = serialDetectat ?: return@ButonShutter
                     stareUpload = StareUpload.Capturare
-                    capturareasiTrimitere(
+                    capturareasiSalvare(
                         context = context,
                         imageCapture = imageCapture,
                         serial = serial,
-                        repo = repo,
+                        queueRepo = queueRepo,
                         onStare = { stareUpload = it },
                         scope = scope,
                     )
@@ -223,14 +237,31 @@ fun CameraScreen(
 }
 
 @Composable
+private fun QueueBadge(count: Int, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .clip(CircleShape)
+            .background(Color(0xFFB45309))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+    ) {
+        Text(
+            text = "$count în așteptare",
+            color = Color.White,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 12.sp,
+        )
+    }
+}
+
+@Composable
 private fun BoxScope.FeedbackOverlay(stare: StareUpload) {
     val mesaj: String?
     val culoare: Color
     when (stare) {
         StareUpload.Inactiv -> { mesaj = null; culoare = Color.Transparent }
         StareUpload.Capturare -> { mesaj = "Capturare..."; culoare = Color.Black.copy(alpha = 0.7f) }
-        StareUpload.Trimitere -> { mesaj = "Trimit..."; culoare = Color.Black.copy(alpha = 0.7f) }
-        is StareUpload.Succes -> { mesaj = "Trimisă (#${stare.id})"; culoare = Color(0xFF166534).copy(alpha = 0.92f) }
+        is StareUpload.Salvat -> { mesaj = "Salvată local — se trimite când e WiFi"; culoare = Color(0xFF166534).copy(alpha = 0.92f) }
         is StareUpload.Eroare -> { mesaj = stare.mesaj; culoare = Color(0xFF991B1B).copy(alpha = 0.92f) }
     }
     if (mesaj != null) {
@@ -287,11 +318,11 @@ private fun ButonShutter(activ: Boolean, onClick: () -> Unit) {
     }
 }
 
-private fun capturareasiTrimitere(
+private fun capturareasiSalvare(
     context: Context,
     imageCapture: ImageCapture,
     serial: String,
-    repo: UploadRepo,
+    queueRepo: QueueRepo,
     onStare: (StareUpload) -> Unit,
     scope: kotlinx.coroutines.CoroutineScope,
 ) {
@@ -307,13 +338,10 @@ private fun capturareasiTrimitere(
             }
 
             override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                onStare(StareUpload.Trimitere)
                 scope.launch {
-                    val rezultat = withContext(Dispatchers.IO) { repo.trimitePoza(fisier, serial) }
-                    fisier.delete()
-                    rezultat
-                        .onSuccess { id -> onStare(StareUpload.Succes(id)) }
-                        .onFailure { e -> onStare(StareUpload.Eroare(e.message ?: "Eroare necunoscută")) }
+                    runCatching { queueRepo.adaugaCitire(fisier, serial) }
+                        .onSuccess { id -> onStare(StareUpload.Salvat(id)) }
+                        .onFailure { e -> onStare(StareUpload.Eroare(e.message ?: "Salvare eșuată")) }
                 }
             }
         },

@@ -11,17 +11,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import eu.sancris.cititor.BuildConfig
 import eu.sancris.cititor.data.ConfigurareRepo
+import eu.sancris.cititor.data.QueueRepo
 import eu.sancris.cititor.data.UpdateChecker
 import eu.sancris.cititor.data.UpdateInstaller
 import kotlinx.coroutines.launch
 import java.io.File
+
+private enum class Ecran { Camera, Queue }
 
 @Composable
 fun AppRoot() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val repo = remember { ConfigurareRepo(context) }
+    val queueRepo = remember { QueueRepo(context) }
     val configurare by repo.configurareFlow.collectAsState(initial = null)
+    var ecran by remember { mutableStateOf(Ecran.Camera) }
     var updateState by remember { mutableStateOf<UpdateUiState?>(null) }
 
     LaunchedEffect(Unit) {
@@ -37,10 +42,15 @@ fun AppRoot() {
             repo = repo,
             onConfigurat = { /* flow-ul din DataStore tranzitioneaza automat */ },
         )
-    } else {
-        CameraScreen(
-            configurare = configurare!!,
+    } else when (ecran) {
+        Ecran.Camera -> CameraScreen(
+            queueRepo = queueRepo,
             onLogout = { scope.launch { repo.sterge() } },
+            onOpenQueue = { ecran = Ecran.Queue },
+        )
+        Ecran.Queue -> QueueScreen(
+            queueRepo = queueRepo,
+            onBack = { ecran = Ecran.Camera },
         )
     }
 
