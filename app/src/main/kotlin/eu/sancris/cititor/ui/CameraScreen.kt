@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Camera
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -39,6 +40,7 @@ import androidx.core.content.ContextCompat
 import eu.sancris.cititor.BuildConfig
 import eu.sancris.cititor.camera.AnalizatorQR
 import eu.sancris.cititor.data.QueueRepo
+import eu.sancris.cititor.data.SesiuneRepo
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
@@ -48,20 +50,27 @@ private sealed interface StareUpload {
     data object Inactiv : StareUpload
     data object Capturare : StareUpload
     data class Salvat(val id: Long) : StareUpload
+    data class Invalid(val serial: String) : StareUpload
     data class Eroare(val mesaj: String) : StareUpload
 }
 
 @Composable
 fun CameraScreen(
     queueRepo: QueueRepo,
+    sesiuneRepo: SesiuneRepo,
     onLogout: () -> Unit,
+    onSesiuneNoua: () -> Unit,
     onOpenQueue: () -> Unit,
+    onOpenContoareSesiune: () -> Unit,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
 
     val countInQueue by queueRepo.countFlow.collectAsState(initial = 0)
+    val sesiune by sesiuneRepo.activaFlow.collectAsState(initial = null)
+    val scanate by sesiuneRepo.observaScanate().collectAsState(initial = 0)
+    val total by sesiuneRepo.observaTotal().collectAsState(initial = 0)
 
     var serialDetectat by remember { mutableStateOf<String?>(null) }
     var flashAprins by remember { mutableStateOf(false) }
@@ -75,7 +84,10 @@ fun CameraScreen(
     }
 
     LaunchedEffect(stareUpload) {
-        if (stareUpload is StareUpload.Salvat || stareUpload is StareUpload.Eroare) {
+        if (stareUpload is StareUpload.Salvat ||
+            stareUpload is StareUpload.Eroare ||
+            stareUpload is StareUpload.Invalid
+        ) {
             delay(2500)
             stareUpload = StareUpload.Inactiv
         }
@@ -169,6 +181,16 @@ fun CameraScreen(
                         onDismissRequest = { meniuDeschis = false },
                     ) {
                         DropdownMenuItem(
+                            text = { Text("Sesiune nouă") },
+                            leadingIcon = {
+                                Icon(Icons.Default.RestartAlt, contentDescription = null)
+                            },
+                            onClick = {
+                                meniuDeschis = false
+                                onSesiuneNoua()
+                            },
+                        )
+                        DropdownMenuItem(
                             text = { Text("Sincronizează acum") },
                             leadingIcon = {
                                 Icon(Icons.Default.CloudUpload, contentDescription = null)
@@ -216,23 +238,57 @@ fun CameraScreen(
             ButonFlash(flashAprins) { flashAprins = !flashAprins }
 
             ButonShutter(
-                activ = serialDetectat != null && stareUpload is StareUpload.Inactiv,
+                activ = serialDetectat != null && stareUpload is StareUpload.Inactiv && sesiune != null,
                 onClick = {
                     val serial = serialDetectat ?: return@ButonShutter
+                    val sesiuneActuala = sesiune ?: return@ButonShutter
                     stareUpload = StareUpload.Capturare
-                    capturareasiSalvare(
-                        context = context,
-                        imageCapture = imageCapture,
-                        serial = serial,
-                        queueRepo = queueRepo,
-                        onStare = { stareUpload = it },
-                        scope = scope,
-                    )
+                    scope.launch {
+                        if (!sesiuneRepo.esteValid(serial)) {
+                            stareUpload = StareUpload.Invalid(serial)
+                            return@launch
+                        }
+                        capturareasiSalvare(
+                            context = context,
+                            imageCapture = imageCapture,
+                            serial = serial,
+                            sesiuneId = sesiuneActuala.id,
+                            queueRepo = queueRepo,
+                            onStare = { stareUpload = it },
+                            scope = scope,
+                        )
+                    }
                 },
             )
 
-            Box(modifier = Modifier.size(48.dp))
+            CounterSesiune(
+                scanate = scanate,
+                total = total,
+                onClick = onOpenContoareSesiune,
+            )
         }
+    }
+}
+
+@Composable
+private fun CounterSesiune(scanate: Int, total: Int, onClick: () -> Unit) {
+    val complet = total > 0 && scanate >= total
+    Box(
+        modifier = Modifier
+            .clip(CircleShape)
+            .background(
+                if (complet) Color(0xFF166534).copy(alpha = 0.92f)
+                else Color.Black.copy(alpha = 0.7f)
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+    ) {
+        Text(
+            text = if (total == 0) "—" else "$scanate/$total",
+            color = Color.White,
+            fontWeight = FontWeight.Bold,
+            fontSize = 16.sp,
+        )
     }
 }
 
@@ -262,6 +318,7 @@ private fun BoxScope.FeedbackOverlay(stare: StareUpload) {
         StareUpload.Inactiv -> { mesaj = null; culoare = Color.Transparent }
         StareUpload.Capturare -> { mesaj = "Capturare..."; culoare = Color.Black.copy(alpha = 0.7f) }
         is StareUpload.Salvat -> { mesaj = "Salvată local — se trimite când e WiFi"; culoare = Color(0xFF166534).copy(alpha = 0.92f) }
+        is StareUpload.Invalid -> { mesaj = "Contor invalid: ${stare.serial}\nNu e în lista sesiunii curente."; culoare = Color(0xFFB45309).copy(alpha = 0.92f) }
         is StareUpload.Eroare -> { mesaj = stare.mesaj; culoare = Color(0xFF991B1B).copy(alpha = 0.92f) }
     }
     if (mesaj != null) {
@@ -322,6 +379,7 @@ private fun capturareasiSalvare(
     context: Context,
     imageCapture: ImageCapture,
     serial: String,
+    sesiuneId: Long,
     queueRepo: QueueRepo,
     onStare: (StareUpload) -> Unit,
     scope: kotlinx.coroutines.CoroutineScope,
@@ -339,7 +397,7 @@ private fun capturareasiSalvare(
 
             override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                 scope.launch {
-                    runCatching { queueRepo.adaugaCitire(fisier, serial) }
+                    runCatching { queueRepo.adaugaCitire(fisier, serial, sesiuneId) }
                         .onSuccess { id -> onStare(StareUpload.Salvat(id)) }
                         .onFailure { e -> onStare(StareUpload.Eroare(e.message ?: "Salvare eșuată")) }
                 }

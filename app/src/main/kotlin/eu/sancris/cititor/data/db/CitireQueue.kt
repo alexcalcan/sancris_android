@@ -19,4 +19,5 @@ data class CitireQueue(
     val status: String = StatusCitire.PENDING,
     val retryCount: Int = 0,
     val lastError: String? = null,
+    val sesiuneId: Long = 0,
 )

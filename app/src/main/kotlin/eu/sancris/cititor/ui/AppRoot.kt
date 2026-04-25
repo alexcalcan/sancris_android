@@ -12,22 +12,27 @@ import androidx.compose.ui.platform.LocalContext
 import eu.sancris.cititor.BuildConfig
 import eu.sancris.cititor.data.ConfigurareRepo
 import eu.sancris.cititor.data.QueueRepo
+import eu.sancris.cititor.data.RezultatSesiuneNoua
+import eu.sancris.cititor.data.SesiuneRepo
 import eu.sancris.cititor.data.UpdateChecker
 import eu.sancris.cititor.data.UpdateInstaller
 import kotlinx.coroutines.launch
 import java.io.File
 
-private enum class Ecran { Camera, Queue }
+private enum class Ecran { Camera, Queue, ContoareRamase }
 
 @Composable
 fun AppRoot() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val repo = remember { ConfigurareRepo(context) }
+    val configRepo = remember { ConfigurareRepo(context) }
     val queueRepo = remember { QueueRepo(context) }
-    val configurare by repo.configurareFlow.collectAsState(initial = null)
+    val sesiuneRepo = remember { SesiuneRepo(context) }
+    val configurare by configRepo.configurareFlow.collectAsState(initial = null)
     var ecran by remember { mutableStateOf(Ecran.Camera) }
     var updateState by remember { mutableStateOf<UpdateUiState?>(null) }
+    var sesiuneStare by remember { mutableStateOf<StareSesiuneStart?>(null) }
+    var sesiunePrima by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
         runCatching {
@@ -37,20 +42,62 @@ fun AppRoot() {
         }
     }
 
+    // La prima compose dupa ce avem configurare (si la fiecare reconfigurare), decide daca cerem dialog de sesiune.
+    LaunchedEffect(configurare) {
+        if (configurare == null) {
+            sesiunePrima = true
+        } else if (sesiunePrima) {
+            sesiunePrima = false
+            val snap = sesiuneRepo.snapshot()
+            sesiuneStare = StareSesiuneStart.Decizie(
+                areActiva = snap.areActiva && snap.total > 0,
+                scanate = snap.scanate,
+                total = snap.total,
+            )
+        }
+    }
+
+    fun pornesteSesiune() {
+        sesiuneStare = StareSesiuneStart.Pornire
+        scope.launch {
+            when (val rez = sesiuneRepo.pornesteSesiuneNoua()) {
+                is RezultatSesiuneNoua.Reusit -> sesiuneStare = null
+                is RezultatSesiuneNoua.EroareRetea -> sesiuneStare = StareSesiuneStart.Eroare(rez.mesaj)
+                RezultatSesiuneNoua.FaraConfigurare -> sesiuneStare = null
+            }
+        }
+    }
+
     if (configurare == null) {
         ProvisioningScreen(
-            repo = repo,
+            repo = configRepo,
             onConfigurat = { /* flow-ul din DataStore tranzitioneaza automat */ },
         )
     } else when (ecran) {
         Ecran.Camera -> CameraScreen(
             queueRepo = queueRepo,
-            onLogout = { scope.launch { repo.sterge() } },
+            sesiuneRepo = sesiuneRepo,
+            onLogout = { scope.launch { configRepo.sterge() } },
+            onSesiuneNoua = { sesiuneStare = StareSesiuneStart.Decizie(areActiva = false, scanate = 0, total = 0) },
             onOpenQueue = { ecran = Ecran.Queue },
+            onOpenContoareSesiune = { ecran = Ecran.ContoareRamase },
         )
         Ecran.Queue -> QueueScreen(
             queueRepo = queueRepo,
             onBack = { ecran = Ecran.Camera },
+        )
+        Ecran.ContoareRamase -> ContoareRamaseScreen(
+            sesiuneRepo = sesiuneRepo,
+            onBack = { ecran = Ecran.Camera },
+        )
+    }
+
+    sesiuneStare?.let { stare ->
+        SesiuneStartDialog(
+            stare = stare,
+            onContinua = { sesiuneStare = null },
+            onSesiuneNoua = ::pornesteSesiune,
+            onDismiss = { sesiuneStare = null },
         )
     }
 

@@ -16,6 +16,12 @@ data class PingResponse(val ok: Boolean, val cititor: String)
 @Serializable
 data class CitireResponse(val ok: Boolean, val id: Long, val serial: String)
 
+@Serializable
+data class ContorDeCititDto(val serial: String, val descriere: String)
+
+@Serializable
+data class ContoareDeCititResponse(val contoare: List<ContorDeCititDto>)
+
 interface SancrisApi {
     @GET("api/cititori/ping")
     suspend fun ping(@Header("X-Cititor-Token") token: String): Response<PingResponse>
@@ -27,4 +33,9 @@ interface SancrisApi {
         @Part poza: MultipartBody.Part,
         @Part("serial") serial: RequestBody,
     ): Response<CitireResponse>
+
+    @GET("api/cititori/contoare-de-citit")
+    suspend fun contoareDeCitit(
+        @Header("X-Cititor-Token") token: String,
+    ): Response<ContoareDeCititResponse>
 }

@@ -28,7 +28,11 @@ class QueueRepo(private val context: Context) {
      * Salveaza poza in storage privat al app-ului si o pune in coada.
      * Programeaza worker-ul de upload (nu e blocant).
      */
-    suspend fun adaugaCitire(fotografieTemp: File, serial: String): Long = withContext(Dispatchers.IO) {
+    suspend fun adaugaCitire(
+        fotografieTemp: File,
+        serial: String,
+        sesiuneId: Long,
+    ): Long = withContext(Dispatchers.IO) {
         val queueDir = File(context.filesDir, "queue").apply { mkdirs() }
         val destinatie = File(queueDir, "${System.currentTimeMillis()}_${serial}.jpg")
         fotografieTemp.copyTo(destinatie, overwrite = true)
@@ -39,6 +43,7 @@ class QueueRepo(private val context: Context) {
                 serial = serial,
                 photoPath = destinatie.absolutePath,
                 createdAt = System.currentTimeMillis(),
+                sesiuneId = sesiuneId,
             ),
         )
         programeazaUpload()
