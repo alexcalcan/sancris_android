@@ -10,10 +10,14 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Camera
 import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -25,10 +29,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import eu.sancris.cititor.BuildConfig
 import eu.sancris.cititor.camera.AnalizatorQR
 import eu.sancris.cititor.data.Configurare
 import eu.sancris.cititor.data.UploadRepo
@@ -50,7 +56,7 @@ private sealed interface StareUpload {
 @Composable
 fun CameraScreen(
     configurare: Configurare,
-    onReConfigureaza: () -> Unit,
+    onLogout: () -> Unit,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -61,6 +67,7 @@ fun CameraScreen(
     var serialDetectat by remember { mutableStateOf<String?>(null) }
     var flashAprins by remember { mutableStateOf(false) }
     var stareUpload by remember { mutableStateOf<StareUpload>(StareUpload.Inactiv) }
+    var meniuDeschis by remember { mutableStateOf(false) }
     val imageCapture = remember { ImageCapture.Builder().setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY).build() }
     var camera by remember { mutableStateOf<Camera?>(null) }
 
@@ -148,11 +155,35 @@ fun CameraScreen(
                 )
             }
 
-            IconButton(
-                onClick = onReConfigureaza,
-                modifier = Modifier.align(Alignment.CenterEnd),
-            ) {
-                Icon(Icons.Default.Settings, contentDescription = "Setări", tint = Color.White)
+            Box(modifier = Modifier.align(Alignment.CenterEnd)) {
+                IconButton(onClick = { meniuDeschis = true }) {
+                    Icon(Icons.Default.Settings, contentDescription = "Setări", tint = Color.White)
+                }
+                DropdownMenu(
+                    expanded = meniuDeschis,
+                    onDismissRequest = { meniuDeschis = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Logout") },
+                        leadingIcon = {
+                            Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null)
+                        },
+                        onClick = {
+                            meniuDeschis = false
+                            onLogout()
+                        },
+                    )
+                    HorizontalDivider()
+                    Text(
+                        text = "V${BuildConfig.VERSION_NAME} ${BuildConfig.BUILD_DATE}",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        textAlign = TextAlign.Center,
+                        fontSize = 12.sp,
+                        color = Color.Gray,
+                    )
+                }
             }
         }
 

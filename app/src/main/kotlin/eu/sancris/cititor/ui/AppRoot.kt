@@ -22,7 +22,6 @@ fun AppRoot() {
     val scope = rememberCoroutineScope()
     val repo = remember { ConfigurareRepo(context) }
     val configurare by repo.configurareFlow.collectAsState(initial = null)
-    var fortareConfigurare by remember { mutableStateOf(false) }
     var updateState by remember { mutableStateOf<UpdateUiState?>(null) }
 
     LaunchedEffect(Unit) {
@@ -33,14 +32,15 @@ fun AppRoot() {
         }
     }
 
-    when {
-        configurare == null || fortareConfigurare -> ProvisioningScreen(
+    if (configurare == null) {
+        ProvisioningScreen(
             repo = repo,
-            onConfigurat = { fortareConfigurare = false },
+            onConfigurat = { /* flow-ul din DataStore tranzitioneaza automat */ },
         )
-        else -> CameraScreen(
+    } else {
+        CameraScreen(
             configurare = configurare!!,
-            onReConfigureaza = { fortareConfigurare = true },
+            onLogout = { scope.launch { repo.sterge() } },
         )
     }
 

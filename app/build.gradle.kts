@@ -25,6 +25,11 @@ android {
 
         buildConfigField("String", "GITHUB_OWNER", "\"alexcalcan\"")
         buildConfigField("String", "GITHUB_REPO", "\"sancris_android\"")
+        buildConfigField(
+            "String",
+            "BUILD_DATE",
+            "\"" + java.text.SimpleDateFormat("dd-MM-yyyy").format(java.util.Date()) + "\"",
+        )
     }
 
     signingConfigs {
