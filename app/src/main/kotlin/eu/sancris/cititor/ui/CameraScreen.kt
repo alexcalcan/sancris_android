@@ -70,6 +70,8 @@ fun CameraScreen(
 
     val countInQueue by queueRepo.countFlow.collectAsState(initial = 0)
     val countDeRevizuit by queueRepo.countDeRevizuitFlow.collectAsState(initial = 0)
+    val deRevizuitList by queueRepo.deRevizuitFlow.collectAsState(initial = emptyList())
+    val ultimulDebug = deRevizuitList.maxByOrNull { it.createdAt }?.debugInfo
     val sesiune by sesiuneRepo.activaFlow.collectAsState(initial = null)
     val scanate by sesiuneRepo.observaScanate().collectAsState(initial = 0)
     val total by sesiuneRepo.observaTotal().collectAsState(initial = 0)
@@ -228,6 +230,24 @@ fun CameraScreen(
         }
 
         FeedbackOverlay(stareUpload)
+
+        ultimulDebug?.let { debug ->
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 100.dp, start = 12.dp, end = 12.dp)
+                    .align(Alignment.TopCenter)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color.Black.copy(alpha = 0.6f))
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+            ) {
+                Text(
+                    text = "DBG: $debug",
+                    color = Color.Yellow,
+                    fontSize = 11.sp,
+                )
+            }
+        }
 
         if (countDeRevizuit > 0) {
             BannerMergiMaiDeparte(
@@ -433,9 +453,10 @@ private fun capturareasiSalvare(
 
             override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                 scope.launch {
-                    runCatching { eu.sancris.cititor.data.RotireQR.rotesteDupaQR(fisier) }
+                    val debug = runCatching { eu.sancris.cititor.data.RotireQR.rotesteDupaQR(fisier) }
+                        .getOrNull() ?: "rotire failed"
                     runCatching {
-                        queueRepo.adaugaPentruRevizuit(fisier, serial, sesiuneId, valoareDetectata = null)
+                        queueRepo.adaugaPentruRevizuit(fisier, serial, sesiuneId, valoareDetectata = null, debugInfo = debug)
                     }
                         .onSuccess { id -> onStare(StareUpload.Salvat(id)) }
                         .onFailure { e -> onStare(StareUpload.Eroare(e.message ?: "Salvare eșuată")) }

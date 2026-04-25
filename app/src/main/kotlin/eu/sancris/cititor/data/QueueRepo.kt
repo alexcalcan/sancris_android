@@ -35,6 +35,7 @@ class QueueRepo(private val context: Context) {
         serial: String,
         sesiuneId: Long,
         valoareDetectata: String?,
+        debugInfo: String? = null,
     ): Long = withContext(Dispatchers.IO) {
         val queueDir = File(context.filesDir, "queue").apply { mkdirs() }
         val destinatie = File(queueDir, "${System.currentTimeMillis()}_${serial}.jpg")
@@ -50,6 +51,7 @@ class QueueRepo(private val context: Context) {
                 sesiuneId = sesiuneId,
                 status = eu.sancris.cititor.data.db.StatusCitire.NEEDS_REVIEW,
                 valoareDetectata = valoareDetectata,
+                debugInfo = debugInfo,
             ),
         )
     }

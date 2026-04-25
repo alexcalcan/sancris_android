@@ -23,4 +23,5 @@ data class CitireQueue(
     val sesiuneId: Long = 0,
     val valoareDetectata: String? = null,
     val valoareConfirmata: String? = null,
+    val debugInfo: String? = null,
 )
