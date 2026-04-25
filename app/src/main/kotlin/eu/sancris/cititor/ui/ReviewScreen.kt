@@ -117,7 +117,6 @@ private fun CardCitireRevizuire(
 ) {
     var valoare by remember(citire.id) { mutableStateOf("") }
     var rotatie by remember(citire.id) { mutableStateOf(0) }
-    var apasariRotire by remember(citire.id) { mutableStateOf(0) }
 
     Column(
         modifier = modifier,
@@ -131,10 +130,7 @@ private fun CardCitireRevizuire(
                 modifier = Modifier.weight(1f),
             )
             IconButton(
-                onClick = {
-                    rotatie = (rotatie + 90) % 360
-                    apasariRotire++
-                },
+                onClick = { rotatie = (rotatie + 90) % 360 },
             ) {
                 Icon(
                     Icons.Default.Rotate90DegreesCw,
@@ -144,25 +140,6 @@ private fun CardCitireRevizuire(
             }
         }
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(6.dp))
-                .background(Color.Black.copy(alpha = 0.85f))
-                .padding(horizontal = 10.dp, vertical = 6.dp),
-        ) {
-            Text(
-                text = buildString {
-                    append("DBG: ")
-                    append(citire.debugInfo ?: "—")
-                    if (apasariRotire > 0) {
-                        append(" | manual: ${apasariRotire}× (=${rotatie}°)")
-                    }
-                },
-                color = Color.Yellow,
-                fontSize = 11.sp,
-            )
-        }
 
         val bitmap by produceState<ImageBitmap?>(initialValue = null, citire.photoPath) {
             value = withContext(Dispatchers.IO) {

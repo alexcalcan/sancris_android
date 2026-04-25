@@ -70,13 +70,22 @@ fun CameraScreen(
 
     val countInQueue by queueRepo.countFlow.collectAsState(initial = 0)
     val countDeRevizuit by queueRepo.countDeRevizuitFlow.collectAsState(initial = 0)
-    val deRevizuitList by queueRepo.deRevizuitFlow.collectAsState(initial = emptyList())
-    val ultimulDebug = deRevizuitList.maxByOrNull { it.createdAt }?.debugInfo
     val sesiune by sesiuneRepo.activaFlow.collectAsState(initial = null)
     val scanate by sesiuneRepo.observaScanate().collectAsState(initial = 0)
     val total by sesiuneRepo.observaTotal().collectAsState(initial = 0)
 
     var serialDetectat by remember { mutableStateOf<String?>(null) }
+    var serialRaw by remember { mutableStateOf<String?>(null) }
+
+    // Debounce: tine "QR detectat" activ inca 1s dupa ce ML Kit nu mai vede QR-ul.
+    LaunchedEffect(serialRaw) {
+        if (serialRaw != null) {
+            serialDetectat = serialRaw
+        } else {
+            delay(1000)
+            serialDetectat = null
+        }
+    }
     var flashAprins by remember { mutableStateOf(false) }
     var stareUpload by remember { mutableStateOf<StareUpload>(StareUpload.Inactiv) }
     var meniuDeschis by remember { mutableStateOf(false) }
@@ -124,8 +133,8 @@ fun CameraScreen(
                                 use.setAnalyzer(
                                     executor,
                                     AnalizatorQR(
-                                        onSerialDetectat = { s -> serialDetectat = s },
-                                        onNiciunQR = { serialDetectat = null },
+                                        onSerialDetectat = { s -> serialRaw = s },
+                                        onNiciunQR = { serialRaw = null },
                                     ),
                                 )
                             }
@@ -241,22 +250,6 @@ fun CameraScreen(
             ) {
                 QueueBadge(count = countInQueue, onClick = onOpenQueue)
             }
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = if (countInQueue > 0) 144.dp else 100.dp, start = 12.dp, end = 12.dp)
-                .align(Alignment.TopCenter)
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color.Black.copy(alpha = 0.6f))
-                .padding(horizontal = 10.dp, vertical = 6.dp),
-        ) {
-            Text(
-                text = "DBG: ${ultimulDebug ?: "—"}",
-                color = Color.Yellow,
-                fontSize = 11.sp,
-            )
         }
 
         if (countDeRevizuit > 0) {
