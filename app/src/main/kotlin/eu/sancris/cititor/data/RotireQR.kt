@@ -95,12 +95,30 @@ object RotireQR {
     }
 
     private suspend fun scanQR(bitmap: Bitmap): Barcode? {
-        val image = InputImage.fromBitmap(bitmap, 0)
+        // ML Kit pica pe bitmap-uri foarte mari cand QR-ul e rotit. Downscale.
+        val maxDim = 1280
+        val maxLatura = maxOf(bitmap.width, bitmap.height)
+        val scanBitmap = if (maxLatura > maxDim) {
+            val scale = maxDim.toFloat() / maxLatura
+            Bitmap.createScaledBitmap(
+                bitmap,
+                (bitmap.width * scale).toInt(),
+                (bitmap.height * scale).toInt(),
+                true,
+            )
+        } else {
+            bitmap
+        }
+
+        val image = InputImage.fromBitmap(scanBitmap, 0)
         val barcodes = suspendCancellableCoroutine<List<Barcode>> { cont ->
             scanner.process(image)
                 .addOnSuccessListener { cont.resume(it.toList()) }
                 .addOnFailureListener { cont.resume(emptyList()) }
         }
+
+        if (scanBitmap != bitmap) scanBitmap.recycle()
+
         return barcodes.firstOrNull { it.rawValue?.contains("sancris", ignoreCase = true) == true }
             ?: barcodes.firstOrNull()
     }
