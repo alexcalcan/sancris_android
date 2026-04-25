@@ -3,48 +3,77 @@ package eu.sancris.cititor.data
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
+import android.graphics.Point
 import androidx.exifinterface.media.ExifInterface
+import com.google.mlkit.vision.barcode.BarcodeScanning
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.common.InputImage
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.File
+import kotlin.coroutines.resume
+import kotlin.math.abs
 
 object RotireQR {
 
+    private val scanner = BarcodeScanning.getClient()
+
     /**
-     * Aplica EXIF orientation pe pixelii fisierului si reseteaza tag-ul EXIF
-     * la NORMAL. Returneaza un string de debug cu ce a facut.
+     * Indrepta poza in 2 pasi:
+     * 1. EXIF normalize: aplica EXIF orientation pe pixeli, reseteaza tag.
+     * 2. QR fine-tune: detecteaza QR-ul; daca e tilted, roteste pana e upright
+     *    (corners[0]→corners[1] = orizontal-spre-dreapta).
+     *
+     * Returneaza string de debug.
      */
     suspend fun rotesteDupaQR(fisier: File): String = withContext(Dispatchers.IO) {
-        val rotatie = readExifRotation(fisier)
+        val log = StringBuilder()
 
-        // Citire dimensiuni initiale pentru debug.
-        val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(fisier.absolutePath, opts)
-        val w = opts.outWidth
-        val h = opts.outHeight
+        // ---- Pas 1: EXIF ----
+        val rotatieExif = readExifRotation(fisier)
+        log.append("exif=$rotatieExif")
 
-        if (rotatie == 0) {
-            return@withContext "exif=0 raw=${w}x${h}"
+        var bitmap = BitmapFactory.decodeFile(fisier.absolutePath)
+            ?: return@withContext "$log decode=failed"
+        log.append(" raw=${bitmap.width}x${bitmap.height}")
+
+        if (rotatieExif != 0) {
+            bitmap = applyRotation(bitmap, rotatieExif)
         }
 
-        val raw = BitmapFactory.decodeFile(fisier.absolutePath)
-            ?: return@withContext "exif=$rotatie decode=failed"
-        val matrix = Matrix().apply { postRotate(rotatie.toFloat()) }
-        val rotita = Bitmap.createBitmap(raw, 0, 0, raw.width, raw.height, matrix, true)
-
-        fisier.outputStream().use { out ->
-            rotita.compress(Bitmap.CompressFormat.JPEG, 92, out)
+        // ---- Pas 2: QR ----
+        val qr = scanQR(bitmap)
+        if (qr == null) {
+            log.append(" qr=miss")
+        } else {
+            val corners = qr.cornerPoints
+            if (corners == null || corners.size != 4) {
+                log.append(" qr=found,no-corners")
+            } else {
+                val rotatieQr = computeQrRotation(corners)
+                log.append(" qr=${rotatieQr}")
+                if (rotatieQr != 0) {
+                    bitmap = applyRotation(bitmap, rotatieQr)
+                }
+            }
         }
-        if (rotita != raw) raw.recycle()
-        rotita.recycle()
 
-        runCatching {
-            val exif = ExifInterface(fisier.absolutePath)
-            exif.setAttribute(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL.toString())
-            exif.saveAttributes()
+        // Daca am modificat ceva, salvam pixelii rotiti.
+        val rotitTotal = (rotatieExif + (qr?.cornerPoints?.takeIf { it.size == 4 }?.let { computeQrRotation(it) } ?: 0)) % 360
+        if (rotitTotal != 0 || rotatieExif != 0) {
+            fisier.outputStream().use { out ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 92, out)
+            }
+            runCatching {
+                val exif = ExifInterface(fisier.absolutePath)
+                exif.setAttribute(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL.toString())
+                exif.saveAttributes()
+            }
         }
+        bitmap.recycle()
 
-        "exif=$rotatie raw=${w}x${h} aplicat"
+        log.toString()
     }
 
     private fun readExifRotation(fisier: File): Int = runCatching {
@@ -56,4 +85,42 @@ object RotireQR {
             else -> 0
         }
     }.getOrDefault(0)
+
+    private fun applyRotation(src: Bitmap, gradeCw: Int): Bitmap {
+        if (gradeCw % 360 == 0) return src
+        val matrix = Matrix().apply { postRotate(gradeCw.toFloat()) }
+        val rotated = Bitmap.createBitmap(src, 0, 0, src.width, src.height, matrix, true)
+        if (rotated != src) src.recycle()
+        return rotated
+    }
+
+    private suspend fun scanQR(bitmap: Bitmap): Barcode? {
+        val image = InputImage.fromBitmap(bitmap, 0)
+        val barcodes = suspendCancellableCoroutine<List<Barcode>> { cont ->
+            scanner.process(image)
+                .addOnSuccessListener { cont.resume(it.toList()) }
+                .addOnFailureListener { cont.resume(emptyList()) }
+        }
+        return barcodes.firstOrNull { it.rawValue?.contains("sancris", ignoreCase = true) == true }
+            ?: barcodes.firstOrNull()
+    }
+
+    /**
+     * QR upright: corners[0] (TL) → corners[1] (TR) = orizontal-spre-dreapta (dx>0, dy~0).
+     *
+     * Daca dy > 0 (TR e sub TL): QR rotit 90° CW in poza → rotim 90° CCW = 270° CW pentru fix.
+     * Daca dy < 0 (TR e deasupra TL): QR rotit 90° CCW → rotim 90° CW.
+     * Daca dx < 0: 180°.
+     */
+    private fun computeQrRotation(corners: Array<Point>): Int {
+        val dx = corners[1].x - corners[0].x
+        val dy = corners[1].y - corners[0].y
+        return when {
+            abs(dx) > abs(dy) && dx > 0 -> 0
+            abs(dy) > abs(dx) && dy > 0 -> 270
+            abs(dx) > abs(dy) && dx < 0 -> 180
+            abs(dy) > abs(dx) && dy < 0 -> 90
+            else -> 0
+        }
+    }
 }
