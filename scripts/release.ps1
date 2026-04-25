@@ -19,6 +19,24 @@ $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $projectRoot
 
+# Detecteaza JAVA_HOME daca nu e setat (foloseste JDK-ul descarcat de Android Studio).
+if (-not $env:JAVA_HOME) {
+    $jdksDir = Join-Path $env:USERPROFILE ".jdks"
+    if (Test-Path $jdksDir) {
+        $jdk = Get-ChildItem $jdksDir -Directory |
+            Where-Object { $_.Name -notmatch '^\.' -and (Test-Path (Join-Path $_.FullName "bin\java.exe")) } |
+            Sort-Object Name -Descending |
+            Select-Object -First 1
+        if ($jdk) {
+            $env:JAVA_HOME = $jdk.FullName
+            Write-Host "JAVA_HOME setat automat la $($env:JAVA_HOME)" -ForegroundColor DarkGray
+        }
+    }
+    if (-not $env:JAVA_HOME) {
+        throw "JAVA_HOME nu e setat si nu am gasit niciun JDK in $jdksDir. Instaleaza JDK 17+ sau seteaza JAVA_HOME manual."
+    }
+}
+
 $buildGradle = "app\build.gradle.kts"
 $content = Get-Content $buildGradle -Raw
 
