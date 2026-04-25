@@ -102,55 +102,68 @@ fun CameraScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { ctx ->
-                val previewView = PreviewView(ctx)
-                val executor = Executors.newSingleThreadExecutor()
-                val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
-                cameraProviderFuture.addListener({
-                    val provider = cameraProviderFuture.get()
-                    val preview = Preview.Builder().build().also {
-                        it.setSurfaceProvider(previewView.surfaceProvider)
-                    }
-                    val analiza = ImageAnalysis.Builder()
-                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                        .build()
-                        .also { use ->
-                            use.setAnalyzer(
-                                executor,
-                                AnalizatorQR(
-                                    onSerialDetectat = { s -> serialDetectat = s },
-                                    onRotatieDetectata = { r -> qrRotatieLive = r },
-                                    onCornersDetectate = { c -> cornersLive = c },
-                                    onNiciunQR = { /* pastram ultimul serial detectat — nu reseteaza */ },
-                                ),
-                            )
+        // Preview-ul + overlay-urile sunt intr-un container patrat centrat vertical.
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .align(Alignment.Center)
+                .background(Color.Black),
+        ) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { ctx ->
+                    val previewView = PreviewView(ctx)
+                    val executor = Executors.newSingleThreadExecutor()
+                    val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
+                    cameraProviderFuture.addListener({
+                        val provider = cameraProviderFuture.get()
+                        val preview = Preview.Builder().build().also {
+                            it.setSurfaceProvider(previewView.surfaceProvider)
                         }
-                    provider.unbindAll()
-                    camera = provider.bindToLifecycle(
-                        lifecycleOwner,
-                        CameraSelector.DEFAULT_BACK_CAMERA,
-                        preview,
-                        analiza,
-                        imageCapture,
-                    )
-                }, ContextCompat.getMainExecutor(ctx))
-                previewView
-            },
-        )
-
-        if (serialDetectat != null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(8.dp)
-                    .border(4.dp, Color(0xFF22C55E), RoundedCornerShape(20.dp))
+                        val analiza = ImageAnalysis.Builder()
+                            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                            .build()
+                            .also { use ->
+                                use.setAnalyzer(
+                                    executor,
+                                    AnalizatorQR(
+                                        onSerialDetectat = { s -> serialDetectat = s },
+                                        onRotatieDetectata = { r -> qrRotatieLive = r },
+                                        onCornersDetectate = { c -> cornersLive = c },
+                                        onNiciunQR = {
+                                            serialDetectat = null
+                                            cornersLive = null
+                                            qrRotatieLive = null
+                                        },
+                                    ),
+                                )
+                            }
+                        provider.unbindAll()
+                        camera = provider.bindToLifecycle(
+                            lifecycleOwner,
+                            CameraSelector.DEFAULT_BACK_CAMERA,
+                            preview,
+                            analiza,
+                            imageCapture,
+                        )
+                    }, ContextCompat.getMainExecutor(ctx))
+                    previewView
+                },
             )
-        }
 
-        cornersLive?.let { c ->
-            CornersOverlay(c, modifier = Modifier.fillMaxSize())
+            if (serialDetectat != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(4.dp)
+                        .border(4.dp, Color(0xFF22C55E), RoundedCornerShape(16.dp))
+                )
+            }
+
+            cornersLive?.let { c ->
+                CornersOverlay(c, modifier = Modifier.fillMaxSize())
+            }
         }
 
         Box(
@@ -177,15 +190,7 @@ fun CameraScreen(
                 )
             }
 
-            Row(
-                modifier = Modifier.align(Alignment.CenterEnd),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (countInQueue > 0) {
-                    QueueBadge(count = countInQueue, onClick = onOpenQueue)
-                    Spacer(modifier = Modifier.size(8.dp))
-                }
-
+            Box(modifier = Modifier.align(Alignment.CenterEnd)) {
                 Box {
                     IconButton(onClick = { meniuDeschis = true }) {
                         Icon(Icons.Default.Settings, contentDescription = "Setări", tint = Color.White)
@@ -241,10 +246,20 @@ fun CameraScreen(
 
         FeedbackOverlay(stareUpload)
 
+        if (countInQueue > 0) {
+            Box(
+                modifier = Modifier
+                    .padding(top = 100.dp)
+                    .align(Alignment.TopCenter),
+            ) {
+                QueueBadge(count = countInQueue, onClick = onOpenQueue)
+            }
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 100.dp, start = 12.dp, end = 12.dp)
+                .padding(top = if (countInQueue > 0) 144.dp else 100.dp, start = 12.dp, end = 12.dp)
                 .align(Alignment.TopCenter)
                 .clip(RoundedCornerShape(8.dp))
                 .background(Color.Black.copy(alpha = 0.6f))

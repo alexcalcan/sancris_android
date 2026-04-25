@@ -68,15 +68,25 @@ object RotireQR {
             bitmap = applyRotation(bitmap, rotatieQr)
         }
 
-        if (rotatieExif != 0 || rotatieQr != 0) {
-            fisier.outputStream().use { out ->
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 92, out)
-            }
-            runCatching {
-                val exif = ExifInterface(fisier.absolutePath)
-                exif.setAttribute(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL.toString())
-                exif.saveAttributes()
-            }
+        // Crop la patrat centrat — match preview-ul.
+        val side = minOf(bitmap.width, bitmap.height)
+        val cropX = (bitmap.width - side) / 2
+        val cropY = (bitmap.height - side) / 2
+        val squared = Bitmap.createBitmap(bitmap, cropX, cropY, side, side)
+        if (squared != bitmap) {
+            bitmap.recycle()
+            bitmap = squared
+        }
+        log.append(" sq=${side}x${side}")
+
+        // Salvam intotdeauna (am facut cel putin un crop).
+        fisier.outputStream().use { out ->
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 92, out)
+        }
+        runCatching {
+            val exif = ExifInterface(fisier.absolutePath)
+            exif.setAttribute(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL.toString())
+            exif.saveAttributes()
         }
         bitmap.recycle()
 
