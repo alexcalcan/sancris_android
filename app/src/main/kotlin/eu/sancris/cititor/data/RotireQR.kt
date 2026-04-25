@@ -3,29 +3,26 @@ package eu.sancris.cititor.data
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
-import android.graphics.Point
 import androidx.exifinterface.media.ExifInterface
-import com.google.mlkit.vision.barcode.BarcodeScanning
-import com.google.mlkit.vision.barcode.common.Barcode
-import com.google.mlkit.vision.common.InputImage
+import com.google.zxing.BinaryBitmap
+import com.google.zxing.NotFoundException
+import com.google.zxing.RGBLuminanceSource
+import com.google.zxing.common.HybridBinarizer
+import com.google.zxing.qrcode.QRCodeReader
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.File
-import kotlin.coroutines.resume
 import kotlin.math.abs
 
 object RotireQR {
 
-    private val scanner = BarcodeScanning.getClient()
-
     /**
-     * Indrepta poza in 2 pasi:
-     * 1. EXIF normalize: aplica EXIF orientation pe pixeli, reseteaza tag.
-     * 2. QR fine-tune: detecteaza QR-ul; daca e tilted, roteste pana e upright
-     *    (corners[0]→corners[1] = orizontal-spre-dreapta).
-     *
-     * Returneaza string de debug.
+     * Indrepta poza:
+     * 1. EXIF normalize (CameraX salveaza pixelii in sensor-orientation cu tag).
+     * 2. ZXing decoding pentru a obtine pozitiile celor 3 finder patterns
+     *    (TL, TR, BL ale QR-ului — orientation-bearing). Vectorul TL→TR
+     *    determina rotatia ramasa.
+     * 3. Crop la patrat centrat.
      */
     suspend fun rotesteDupaQR(fisier: File, hintRotatieDinLive: Int? = null): String = withContext(Dispatchers.IO) {
         val log = StringBuilder()
@@ -41,34 +38,17 @@ object RotireQR {
             bitmap = applyRotation(bitmap, rotatieExif)
         }
 
-        // Folosim hint-ul din live preview daca e disponibil — evita rescan
-        // pe imagine mare.
-        val rotatieQr = if (hintRotatieDinLive != null) {
-            log.append(" qr=hint:${hintRotatieDinLive}")
-            hintRotatieDinLive
+        val rotatieQr = detecteazaRotatieZxing(bitmap)
+        if (rotatieQr == null) {
+            log.append(" zx=miss")
         } else {
-            val qr = scanQR(bitmap)
-            if (qr == null) {
-                log.append(" qr=miss")
-                0
-            } else {
-                val corners = qr.cornerPoints
-                if (corners == null || corners.size != 4) {
-                    log.append(" qr=found,no-corners")
-                    0
-                } else {
-                    val r = computeQrRotation(corners)
-                    log.append(" qr=$r")
-                    r
-                }
+            log.append(" zx=$rotatieQr")
+            if (rotatieQr != 0) {
+                bitmap = applyRotation(bitmap, rotatieQr)
             }
         }
 
-        if (rotatieQr != 0) {
-            bitmap = applyRotation(bitmap, rotatieQr)
-        }
-
-        // Crop la patrat centrat — match preview-ul.
+        // Crop la patrat centrat.
         val side = minOf(bitmap.width, bitmap.height)
         val cropX = (bitmap.width - side) / 2
         val cropY = (bitmap.height - side) / 2
@@ -79,7 +59,6 @@ object RotireQR {
         }
         log.append(" sq=${side}x${side}")
 
-        // Salvam intotdeauna (am facut cel putin un crop).
         fisier.outputStream().use { out ->
             bitmap.compress(Bitmap.CompressFormat.JPEG, 92, out)
         }
@@ -112,10 +91,13 @@ object RotireQR {
     }
 
     /**
-     * Returneaza cele 4 corner points ale QR-ului in spatiul bitmap-ului dat
-     * (re-scalate la dimensiunile lui), sau null daca nu detecteaza.
+     * Foloseste ZXing pentru a decoda QR-ul si a extrage cele 3 finder patterns
+     * (TL, TR, BL — orientation-bearing). Vectorul TL→TR determina rotatia
+     * necesara ca QR-ul sa devina upright.
+     *
+     * ZXing's resultPoints pentru QR: [bottom-left, top-left, top-right]
      */
-    suspend fun extrageCorners(bitmap: Bitmap): List<Point>? = withContext(Dispatchers.IO) {
+    private fun detecteazaRotatieZxing(bitmap: Bitmap): Int? {
         val maxDim = 1280
         val maxLatura = maxOf(bitmap.width, bitmap.height)
         val scale = if (maxLatura > maxDim) maxDim.toFloat() / maxLatura else 1.0f
@@ -130,71 +112,38 @@ object RotireQR {
             bitmap
         }
 
-        val image = InputImage.fromBitmap(scanBitmap, 0)
-        val barcodes = suspendCancellableCoroutine<List<Barcode>> { cont ->
-            scanner.process(image)
-                .addOnSuccessListener { cont.resume(it.toList()) }
-                .addOnFailureListener { cont.resume(emptyList()) }
-        }
-        if (scanBitmap != bitmap) scanBitmap.recycle()
+        val rotatie = try {
+            val pixels = IntArray(scanBitmap.width * scanBitmap.height)
+            scanBitmap.getPixels(pixels, 0, scanBitmap.width, 0, 0, scanBitmap.width, scanBitmap.height)
+            val source = RGBLuminanceSource(scanBitmap.width, scanBitmap.height, pixels)
+            val binary = BinaryBitmap(HybridBinarizer(source))
+            val reader = QRCodeReader()
+            val result = reader.decode(binary)
 
-        val qr = barcodes.firstOrNull { it.rawValue?.contains("sancris", ignoreCase = true) == true }
-            ?: barcodes.firstOrNull()
-        val corners = qr?.cornerPoints?.takeIf { it.size == 4 } ?: return@withContext null
-
-        if (scale < 1.0f) {
-            val inv = 1.0f / scale
-            corners.map { Point((it.x * inv).toInt(), (it.y * inv).toInt()) }
-        } else {
-            corners.toList()
-        }
-    }
-
-    private suspend fun scanQR(bitmap: Bitmap): Barcode? {
-        // ML Kit pica pe bitmap-uri foarte mari cand QR-ul e rotit. Downscale.
-        val maxDim = 1280
-        val maxLatura = maxOf(bitmap.width, bitmap.height)
-        val scanBitmap = if (maxLatura > maxDim) {
-            val scale = maxDim.toFloat() / maxLatura
-            Bitmap.createScaledBitmap(
-                bitmap,
-                (bitmap.width * scale).toInt(),
-                (bitmap.height * scale).toInt(),
-                true,
-            )
-        } else {
-            bitmap
+            val points = result.resultPoints
+            if (points.size < 3) {
+                null
+            } else {
+                val tl = points[1]
+                val tr = points[2]
+                val dx = tr.x - tl.x
+                val dy = tr.y - tl.y
+                when {
+                    abs(dx) > abs(dy) && dx > 0 -> 0       // upright
+                    abs(dy) > abs(dx) && dy > 0 -> 270     // QR right -> down → rotate 90° CCW
+                    abs(dx) > abs(dy) && dx < 0 -> 180
+                    abs(dy) > abs(dx) && dy < 0 -> 90      // QR right -> up → rotate 90° CW
+                    else -> 0
+                }
+            }
+        } catch (e: NotFoundException) {
+            null
+        } catch (e: Throwable) {
+            null
+        } finally {
+            if (scanBitmap != bitmap) scanBitmap.recycle()
         }
 
-        val image = InputImage.fromBitmap(scanBitmap, 0)
-        val barcodes = suspendCancellableCoroutine<List<Barcode>> { cont ->
-            scanner.process(image)
-                .addOnSuccessListener { cont.resume(it.toList()) }
-                .addOnFailureListener { cont.resume(emptyList()) }
-        }
-
-        if (scanBitmap != bitmap) scanBitmap.recycle()
-
-        return barcodes.firstOrNull { it.rawValue?.contains("sancris", ignoreCase = true) == true }
-            ?: barcodes.firstOrNull()
-    }
-
-    /**
-     * QR upright: corners[0] (TL) → corners[1] (TR) = orizontal-spre-dreapta (dx>0, dy~0).
-     *
-     * Daca dy > 0 (TR e sub TL): QR rotit 90° CW in poza → rotim 90° CCW = 270° CW pentru fix.
-     * Daca dy < 0 (TR e deasupra TL): QR rotit 90° CCW → rotim 90° CW.
-     * Daca dx < 0: 180°.
-     */
-    private fun computeQrRotation(corners: Array<Point>): Int {
-        val dx = corners[1].x - corners[0].x
-        val dy = corners[1].y - corners[0].y
-        return when {
-            abs(dx) > abs(dy) && dx > 0 -> 0
-            abs(dy) > abs(dx) && dy > 0 -> 270
-            abs(dx) > abs(dy) && dx < 0 -> 180
-            abs(dy) > abs(dx) && dy < 0 -> 90
-            else -> 0
-        }
+        return rotatie
     }
 }
