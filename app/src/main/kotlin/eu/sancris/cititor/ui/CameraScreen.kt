@@ -433,11 +433,9 @@ private fun capturareasiSalvare(
 
             override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                 scope.launch {
-                    val valoareDetectata = runCatching {
-                        eu.sancris.cititor.data.OcrService.extrageValoare(fisier)
-                    }.getOrNull()
+                    runCatching { eu.sancris.cititor.data.RotireQR.rotesteDupaQR(fisier) }
                     runCatching {
-                        queueRepo.adaugaPentruRevizuit(fisier, serial, sesiuneId, valoareDetectata)
+                        queueRepo.adaugaPentruRevizuit(fisier, serial, sesiuneId, valoareDetectata = null)
                     }
                         .onSuccess { id -> onStare(StareUpload.Salvat(id)) }
                         .onFailure { e -> onStare(StareUpload.Eroare(e.message ?: "Salvare eșuată")) }

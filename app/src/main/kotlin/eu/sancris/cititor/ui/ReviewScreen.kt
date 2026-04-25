@@ -113,7 +113,7 @@ private fun CardCitireRevizuire(
     onConfirma: (String) -> Unit,
     onSterge: () -> Unit,
 ) {
-    var valoare by remember(citire.id) { mutableStateOf(citire.valoareDetectata.orEmpty()) }
+    var valoare by remember(citire.id) { mutableStateOf("") }
 
     Column(
         modifier = modifier,
@@ -148,30 +148,14 @@ private fun CardCitireRevizuire(
             } ?: Text("Se încarcă...", color = Color.White)
         }
 
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                text = if (citire.valoareDetectata != null) {
-                    "OCR a detectat: ${citire.valoareDetectata}"
-                } else {
-                    "OCR n-a putut citi — introdu valoarea manual"
-                },
-                fontSize = 12.sp,
-                color = Color.Gray,
-            )
-            OutlinedTextField(
-                value = valoare,
-                onValueChange = { nou ->
-                    // permite doar cifre + un punct/virgula
-                    if (nou.matches(Regex("\\d*[.,]?\\d*"))) {
-                        valoare = nou.replace(',', '.')
-                    }
-                },
-                label = { Text("Valoare contor") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-            )
-        }
+        OutlinedTextField(
+            value = valoare,
+            onValueChange = { nou -> valoare = nou.filter { it.isDigit() } },
+            label = { Text("Valoare contor") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+        )
 
         Spacer(Modifier.weight(1f))
 
