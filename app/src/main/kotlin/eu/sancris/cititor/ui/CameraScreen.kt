@@ -77,6 +77,8 @@ fun CameraScreen(
     val total by sesiuneRepo.observaTotal().collectAsState(initial = 0)
 
     var serialDetectat by remember { mutableStateOf<String?>(null) }
+    var qrRotatieLive by remember { mutableStateOf<Int?>(null) }
+    var cornersLive by remember { mutableStateOf<eu.sancris.cititor.camera.CornersDetectate?>(null) }
     var flashAprins by remember { mutableStateOf(false) }
     var stareUpload by remember { mutableStateOf<StareUpload>(StareUpload.Inactiv) }
     var meniuDeschis by remember { mutableStateOf(false) }
@@ -117,6 +119,8 @@ fun CameraScreen(
                                 executor,
                                 AnalizatorQR(
                                     onSerialDetectat = { s -> serialDetectat = s },
+                                    onRotatieDetectata = { r -> qrRotatieLive = r },
+                                    onCornersDetectate = { c -> cornersLive = c },
                                     onNiciunQR = { /* pastram ultimul serial detectat — nu reseteaza */ },
                                 ),
                             )
@@ -141,6 +145,10 @@ fun CameraScreen(
                     .padding(8.dp)
                     .border(4.dp, Color(0xFF22C55E), RoundedCornerShape(20.dp))
             )
+        }
+
+        cornersLive?.let { c ->
+            CornersOverlay(c, modifier = Modifier.fillMaxSize())
         }
 
         Box(
@@ -231,22 +239,24 @@ fun CameraScreen(
 
         FeedbackOverlay(stareUpload)
 
-        ultimulDebug?.let { debug ->
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 100.dp, start = 12.dp, end = 12.dp)
-                    .align(Alignment.TopCenter)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color.Black.copy(alpha = 0.6f))
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
-            ) {
-                Text(
-                    text = "DBG: $debug",
-                    color = Color.Yellow,
-                    fontSize = 11.sp,
-                )
-            }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 100.dp, start = 12.dp, end = 12.dp)
+                .align(Alignment.TopCenter)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color.Black.copy(alpha = 0.6f))
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+        ) {
+            Text(
+                text = buildString {
+                    append("DBG: live qr=")
+                    append(qrRotatieLive?.let { "${it}°" } ?: "—")
+                    ultimulDebug?.let { append(" | last: $it") }
+                },
+                color = Color.Yellow,
+                fontSize = 11.sp,
+            )
         }
 
         if (countDeRevizuit > 0) {
@@ -286,6 +296,7 @@ fun CameraScreen(
                             imageCapture = imageCapture,
                             serial = serial,
                             sesiuneId = sesiuneActuala.id,
+                            qrRotatieHint = qrRotatieLive,
                             queueRepo = queueRepo,
                             onStare = { stareUpload = it },
                             scope = scope,
@@ -299,6 +310,47 @@ fun CameraScreen(
                 total = total,
                 onClick = onOpenContoareSesiune,
             )
+        }
+    }
+}
+
+@Composable
+private fun CornersOverlay(
+    detectie: eu.sancris.cititor.camera.CornersDetectate,
+    modifier: Modifier = Modifier,
+) {
+    val culori = listOf(Color(0xFFEF4444), Color(0xFFF59E0B), Color(0xFF22C55E), Color(0xFF3B82F6))
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier = modifier) {
+        val viewW = constraints.maxWidth.toFloat()
+        val viewH = constraints.maxHeight.toFloat()
+        val imgW = detectie.imageWidth.toFloat()
+        val imgH = detectie.imageHeight.toFloat()
+        // PreviewView FILL_CENTER (default): scale = max(view/img), excesul e cropat.
+        val scale = maxOf(viewW / imgW, viewH / imgH)
+        val displayedW = imgW * scale
+        val displayedH = imgH * scale
+        val offsetX = (viewW - displayedW) / 2f
+        val offsetY = (viewH - displayedH) / 2f
+
+        androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+            detectie.corners.forEachIndexed { i, p ->
+                val cx = offsetX + p.x * scale
+                val cy = offsetY + p.y * scale
+                drawCircle(
+                    color = culori[i % 4],
+                    radius = 22f,
+                    center = androidx.compose.ui.geometry.Offset(cx, cy),
+                )
+                drawIntoCanvas { canvas ->
+                    val paint = android.graphics.Paint().apply {
+                        color = android.graphics.Color.WHITE
+                        textSize = 36f
+                        isAntiAlias = true
+                        typeface = android.graphics.Typeface.DEFAULT_BOLD
+                    }
+                    canvas.nativeCanvas.drawText("${i + 1}", cx + 24f, cy + 12f, paint)
+                }
+            }
         }
     }
 }
@@ -436,6 +488,7 @@ private fun capturareasiSalvare(
     imageCapture: ImageCapture,
     serial: String,
     sesiuneId: Long,
+    qrRotatieHint: Int?,
     queueRepo: QueueRepo,
     onStare: (StareUpload) -> Unit,
     scope: kotlinx.coroutines.CoroutineScope,
@@ -453,7 +506,7 @@ private fun capturareasiSalvare(
 
             override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                 scope.launch {
-                    val debug = runCatching { eu.sancris.cititor.data.RotireQR.rotesteDupaQR(fisier) }
+                    val debug = runCatching { eu.sancris.cititor.data.RotireQR.rotesteDupaQR(fisier, qrRotatieHint) }
                         .getOrNull() ?: "rotire failed"
                     runCatching {
                         queueRepo.adaugaPentruRevizuit(fisier, serial, sesiuneId, valoareDetectata = null, debugInfo = debug)

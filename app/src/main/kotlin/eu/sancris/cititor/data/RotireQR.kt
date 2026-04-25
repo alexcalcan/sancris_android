@@ -27,10 +27,9 @@ object RotireQR {
      *
      * Returneaza string de debug.
      */
-    suspend fun rotesteDupaQR(fisier: File): String = withContext(Dispatchers.IO) {
+    suspend fun rotesteDupaQR(fisier: File, hintRotatieDinLive: Int? = null): String = withContext(Dispatchers.IO) {
         val log = StringBuilder()
 
-        // ---- Pas 1: EXIF ----
         val rotatieExif = readExifRotation(fisier)
         log.append("exif=$rotatieExif")
 
@@ -42,26 +41,34 @@ object RotireQR {
             bitmap = applyRotation(bitmap, rotatieExif)
         }
 
-        // ---- Pas 2: QR ----
-        val qr = scanQR(bitmap)
-        if (qr == null) {
-            log.append(" qr=miss")
+        // Folosim hint-ul din live preview daca e disponibil — evita rescan
+        // pe imagine mare.
+        val rotatieQr = if (hintRotatieDinLive != null) {
+            log.append(" qr=hint:${hintRotatieDinLive}")
+            hintRotatieDinLive
         } else {
-            val corners = qr.cornerPoints
-            if (corners == null || corners.size != 4) {
-                log.append(" qr=found,no-corners")
+            val qr = scanQR(bitmap)
+            if (qr == null) {
+                log.append(" qr=miss")
+                0
             } else {
-                val rotatieQr = computeQrRotation(corners)
-                log.append(" qr=${rotatieQr}")
-                if (rotatieQr != 0) {
-                    bitmap = applyRotation(bitmap, rotatieQr)
+                val corners = qr.cornerPoints
+                if (corners == null || corners.size != 4) {
+                    log.append(" qr=found,no-corners")
+                    0
+                } else {
+                    val r = computeQrRotation(corners)
+                    log.append(" qr=$r")
+                    r
                 }
             }
         }
 
-        // Daca am modificat ceva, salvam pixelii rotiti.
-        val rotitTotal = (rotatieExif + (qr?.cornerPoints?.takeIf { it.size == 4 }?.let { computeQrRotation(it) } ?: 0)) % 360
-        if (rotitTotal != 0 || rotatieExif != 0) {
+        if (rotatieQr != 0) {
+            bitmap = applyRotation(bitmap, rotatieQr)
+        }
+
+        if (rotatieExif != 0 || rotatieQr != 0) {
             fisier.outputStream().use { out ->
                 bitmap.compress(Bitmap.CompressFormat.JPEG, 92, out)
             }
@@ -92,6 +99,45 @@ object RotireQR {
         val rotated = Bitmap.createBitmap(src, 0, 0, src.width, src.height, matrix, true)
         if (rotated != src) src.recycle()
         return rotated
+    }
+
+    /**
+     * Returneaza cele 4 corner points ale QR-ului in spatiul bitmap-ului dat
+     * (re-scalate la dimensiunile lui), sau null daca nu detecteaza.
+     */
+    suspend fun extrageCorners(bitmap: Bitmap): List<Point>? = withContext(Dispatchers.IO) {
+        val maxDim = 1280
+        val maxLatura = maxOf(bitmap.width, bitmap.height)
+        val scale = if (maxLatura > maxDim) maxDim.toFloat() / maxLatura else 1.0f
+        val scanBitmap = if (scale < 1.0f) {
+            Bitmap.createScaledBitmap(
+                bitmap,
+                (bitmap.width * scale).toInt(),
+                (bitmap.height * scale).toInt(),
+                true,
+            )
+        } else {
+            bitmap
+        }
+
+        val image = InputImage.fromBitmap(scanBitmap, 0)
+        val barcodes = suspendCancellableCoroutine<List<Barcode>> { cont ->
+            scanner.process(image)
+                .addOnSuccessListener { cont.resume(it.toList()) }
+                .addOnFailureListener { cont.resume(emptyList()) }
+        }
+        if (scanBitmap != bitmap) scanBitmap.recycle()
+
+        val qr = barcodes.firstOrNull { it.rawValue?.contains("sancris", ignoreCase = true) == true }
+            ?: barcodes.firstOrNull()
+        val corners = qr?.cornerPoints?.takeIf { it.size == 4 } ?: return@withContext null
+
+        if (scale < 1.0f) {
+            val inv = 1.0f / scale
+            corners.map { Point((it.x * inv).toInt(), (it.y * inv).toInt()) }
+        } else {
+            corners.toList()
+        }
     }
 
     private suspend fun scanQR(bitmap: Bitmap): Barcode? {
