@@ -15,10 +15,14 @@ class UploadRepo(private val configurare: Configurare) {
         serial: String,
         valoare: String? = null,
     ): Result<Long> {
+        // Resize inainte de upload — economisim banda mobila + spatiu pe server.
+        val redimensionat = ResizePoza.scalat(fotografie)
+        val esteTemporar = redimensionat !== fotografie
+
         return try {
             val mediaType = "image/jpeg".toMediaTypeOrNull()
-            val pozaBody = fotografie.asRequestBody(mediaType)
-            val pozaPart = MultipartBody.Part.createFormData("poza", fotografie.name, pozaBody)
+            val pozaBody = redimensionat.asRequestBody(mediaType)
+            val pozaPart = MultipartBody.Part.createFormData("poza", redimensionat.name, pozaBody)
             val serialBody: RequestBody = serial.toRequestBody("text/plain".toMediaTypeOrNull())
             val valoareBody: RequestBody? = valoare?.toRequestBody("text/plain".toMediaTypeOrNull())
 
@@ -30,6 +34,8 @@ class UploadRepo(private val configurare: Configurare) {
             }
         } catch (e: Throwable) {
             Result.failure(e)
+        } finally {
+            if (esteTemporar) redimensionat.delete()
         }
     }
 
