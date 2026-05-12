@@ -23,8 +23,8 @@ android {
         applicationId = "eu.sancris.cititor"
         minSdk = 26
         targetSdk = 35
-        versionCode = 22
-        versionName = "0.9.1"
+        versionCode = 26
+        versionName = "1.0.0"
 
         buildConfigField("String", "GITHUB_OWNER", "\"alexcalcan\"")
         buildConfigField("String", "GITHUB_REPO", "\"sancris_android\"")
